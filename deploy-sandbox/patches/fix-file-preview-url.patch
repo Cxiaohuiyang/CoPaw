@@ -1,0 +1,16 @@
+--- a/src/api/modules/chat.ts
++++ b/src/api/modules/chat.ts
+@@ -40,6 +40,12 @@ export const chatApi = {
+   filePreviewUrl: (filename: string): string => {
+     if (!filename) return "";
+     if (filename.startsWith("http://") || filename.startsWith("https://"))
+       return filename;
++    // Fix: handle URLs already containing /files/preview/
++    if (filename.includes("/files/preview/")) {
++      const idx = filename.indexOf("/files/preview/");
++      let rest = filename.slice(idx + "/files/preview/".length);
++      filename = rest.replace(/^\/+/, "");
++    }
+     const path = `${FILES_PREVIEW}/${filename.replace(/^\/+/, "")}`;
+     const url = getApiUrl(path);
+

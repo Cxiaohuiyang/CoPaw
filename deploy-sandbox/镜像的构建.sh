@@ -1,4 +1,9 @@
-# 使用 docker-compose（推荐）
+cd deploy-sandbox
+
+# 停止并删除旧容器
+docker-compose -f docker-compose.single.yml down
+
+# 使用 docker-compose（推荐） 构建镜像
 docker-compose -f docker-compose.single.yml up -d
 
 # 或使用 docker run（单独运行）

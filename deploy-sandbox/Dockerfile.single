@@ -8,6 +8,12 @@ COPY console/package.json console/pnpm-lock.yaml ./
 RUN npm install -g pnpm && pnpm install --frozen-lockfile
 
 COPY console/ ./
+
+# Apply patch: Fix filePreviewUrl to handle already-prefixed URLs
+RUN apt-get update && apt-get install -y patch && rm -rf /var/lib/apt/lists/*
+COPY deploy-sandbox/patches/fix-file-preview-url.patch /tmp/
+RUN patch -p1 < /tmp/fix-file-preview-url.patch
+
 RUN pnpm run build
 
 # -----------------------------------------------------------------------------

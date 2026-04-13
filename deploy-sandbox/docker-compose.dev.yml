@@ -1,0 +1,31 @@
+volumes:
+  copaw-data:
+    name: copaw-data
+  copaw-secrets:
+    name: copaw-secrets
+
+services:
+  copaw:
+    build:
+      context: ..
+      dockerfile: deploy-sandbox/Dockerfile.single
+    container_name: copaw
+    restart: always
+    ports:
+      - "8088:8088"
+    environment:
+      - COPAW_PORT=8080
+      - COPAW_WORKING_DIR=/app/working
+      - COPAW_SECRET_DIR=/app/working.secret
+    volumes:
+      - copaw-data:/app/working
+      - copaw-secrets:/app/working.secret
+      # 开发模式：挂载代码目录（修改后无需 rebuild）
+      - ../src:/app/src:ro
+      - ../console/dist:/usr/share/nginx/html/copaw:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8088/copaw/api/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
