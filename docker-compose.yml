@@ -11,8 +11,8 @@ services:
     image: agentscope/copaw:latest
     container_name: copaw
     restart: always
-    ports:
-      - "127.0.0.1:8088:8088"
+    expose:
+      - "8088"
     # environment:
     #   - COPAW_AUTH_ENABLED=true
     #   - COPAW_AUTH_USERNAME=admin
@@ -20,3 +20,23 @@ services:
     volumes:
       - copaw-data:/app/working
       - copaw-secrets:/app/working.secret
+    networks:
+      - copaw-network
+
+  nginx:
+    image: nginx:alpine
+    container_name: copaw-nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - copaw
+    networks:
+      - copaw-network
+
+networks:
+  copaw-network:
+    name: copaw-network

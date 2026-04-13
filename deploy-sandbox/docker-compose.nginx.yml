@@ -1,0 +1,53 @@
+volumes:
+  copaw-data:
+    name: copaw-data
+  copaw-secrets:
+    name: copaw-secrets
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy-sandbox/Dockerfile.nginx
+      target: api-runtime
+    container_name: copaw-api
+    restart: always
+    expose:
+      - "8080"
+    environment:
+      - COPAW_PORT=8080
+      - COPAW_WORKING_DIR=/app/working
+      - COPAW_SECRET_DIR=/app/working.secret
+      # - COPAW_AUTH_ENABLED=true
+      # - COPAW_AUTH_USERNAME=admin
+      # - COPAW_AUTH_PASSWORD=yourpassword
+    volumes:
+      - copaw-data:/app/working
+      - copaw-secrets:/app/working.secret
+    networks:
+      - copaw-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  nginx:
+    build:
+      context: ..
+      dockerfile: deploy-sandbox/Dockerfile.nginx
+      target: nginx
+    container_name: copaw-nginx
+    restart: always
+    ports:
+      - "8088:8088"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - copaw-network
+
+networks:
+  copaw-network:
+    name: copaw-network

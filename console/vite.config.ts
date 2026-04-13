@@ -9,6 +9,7 @@ export default defineConfig(({ mode }) => {
   const apiBaseUrl = env.VITE_API_BASE_URL ?? "";
 
   return {
+    base: "/copaw/",
     define: {
       VITE_API_BASE_URL: JSON.stringify(apiBaseUrl),
       TOKEN: JSON.stringify(env.TOKEN || ""),
@@ -34,6 +35,13 @@ export default defineConfig(({ mode }) => {
     server: {
       host: "0.0.0.0",
       port: 5173,
+      proxy: {
+        "/api": {
+          target: "http://127.0.0.1:8088",
+          changeOrigin: true,
+          secure: false,
+        },
+      },
     },
     optimizeDeps: {
       include: ["diff"],

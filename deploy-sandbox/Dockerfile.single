@@ -1,0 +1,56 @@
+# -----------------------------------------------------------------------------
+# Stage 1: Build console frontend
+# -----------------------------------------------------------------------------
+FROM node:20-slim AS console-builder
+
+WORKDIR /app
+COPY console/package.json console/pnpm-lock.yaml ./
+RUN npm install -g pnpm && pnpm install --frozen-lockfile
+
+COPY console/ ./
+RUN pnpm run build
+
+# -----------------------------------------------------------------------------
+# Stage 2: Final runtime image with Nginx + Python API
+# -----------------------------------------------------------------------------
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies (Nginx + Python build deps)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nginx \
+    gcc \
+    libssl-dev \
+    curl \
+    supervisor \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create virtual environment
+RUN python3 -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+
+# Copy and install Python dependencies
+COPY pyproject.toml setup.py README.md ./
+COPY src/ ./src/
+RUN pip install --no-cache-dir -e . -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+
+# Copy built console
+COPY --from=console-builder /app/dist/ /usr/share/nginx/html/copaw/
+
+# Copy Nginx configuration
+COPY deploy-sandbox/nginx.docker.conf /etc/nginx/conf.d/default.conf
+
+# Copy Supervisor configuration
+COPY deploy-sandbox/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Set environment variables
+ENV COPAW_PORT=8080
+ENV COPAW_CONSOLE_STATIC_DIR=/usr/share/nginx/html/copaw
+ENV PYTHONUNBUFFERED=1
+
+# Expose port 8088 (Nginx)
+EXPOSE 8088
+
+# Start Supervisor (manages both Nginx and Python API)
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

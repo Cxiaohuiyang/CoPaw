@@ -104,7 +104,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 }
 
 function getRouterBasename(pathname: string): string | undefined {
-  return /^\/console(?:\/|$)/.test(pathname) ? "/console" : undefined;
+  return /^\/copaw(?:\/|$)/.test(pathname) ? "/copaw" : undefined;
 }
 
 function AppInner() {

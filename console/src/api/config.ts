@@ -4,15 +4,14 @@ declare const TOKEN: string;
 const AUTH_TOKEN_KEY = "copaw_auth_token";
 
 /**
- * Get the full API URL with /api prefix
+ * Get the full API URL with /copaw/api prefix
  * @param path - API path (e.g., "/models", "/skills")
- * @returns Full API URL (e.g., "http://localhost:8088/api/models" or "/api/models")
+ * @returns Full API URL (e.g., "/copaw/api/models")
  */
 export function getApiUrl(path: string): string {
-  const base = VITE_API_BASE_URL || "";
-  const apiPrefix = "/api";
+  const apiPrefix = "/copaw/api";
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  return `${base}${apiPrefix}${normalizedPath}`;
+  return `${apiPrefix}${normalizedPath}`;
 }
 
 /**

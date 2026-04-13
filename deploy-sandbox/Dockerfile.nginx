@@ -1,0 +1,65 @@
+# -----------------------------------------------------------------------------
+# Stage 1: Build console frontend
+# -----------------------------------------------------------------------------
+FROM node:20-slim AS console-builder
+
+WORKDIR /app
+COPY console/package.json console/pnpm-lock.yaml ./
+RUN npm install -g pnpm && pnpm install --frozen-lockfile
+
+COPY console/ ./
+RUN pnpm run build
+
+# -----------------------------------------------------------------------------
+# Stage 2: Python API runtime
+# -----------------------------------------------------------------------------
+FROM python:3.11-slim AS api-runtime
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libssl-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create virtual environment
+RUN python3 -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+
+# Copy and install Python dependencies
+COPY pyproject.toml setup.py README.md ./
+COPY src/ ./src/
+RUN pip install --no-cache-dir -e .
+
+# Copy built console to serve via FastAPI static files
+COPY --from=console-builder /app/dist/ ./console_dist/
+
+# Set environment variables
+ENV COPAW_PORT=8080
+ENV COPAW_CONSOLE_STATIC_DIR=/app/console_dist
+ENV PYTHONUNBUFFERED=1
+
+# Expose API port (internal)
+EXPOSE 8080
+
+# Start the API server
+CMD ["copaw", "app", "--host", "0.0.0.0", "--port", "8080"]
+
+# -----------------------------------------------------------------------------
+# Stage 3: Nginx proxy (final image)
+# -----------------------------------------------------------------------------
+FROM nginx:alpine AS nginx
+
+# Copy custom nginx configuration
+COPY deploy-sandbox/nginx.docker.conf /etc/nginx/conf.d/default.conf
+
+# Copy frontend static files to nginx web root
+COPY --from=console-builder /app/dist/ /usr/share/nginx/html/copaw/
+
+# Expose port 8088
+EXPOSE 8088
+
+# Start nginx
+CMD ["nginx", "-g", "daemon off;"]
