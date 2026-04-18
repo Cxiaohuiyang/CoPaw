@@ -1,15 +1,37 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Button, Form, Input, Modal, Tag } from "@agentscope-ai/design";
+import {
+  Button,
+  Form,
+  Input,
+  Modal,
+  Tag,
+  Tooltip,
+} from "@agentscope-ai/design";
+import { AutoComplete } from "antd";
 import {
   DeleteOutlined,
   PlusOutlined,
   ApiOutlined,
-  SyncOutlined,
   EyeOutlined,
   SettingOutlined,
   DownOutlined,
+  SearchOutlined,
+  ExperimentOutlined,
+  AppstoreOutlined,
+  VideoCameraOutlined,
+  FileTextOutlined,
+  QuestionCircleOutlined,
+  DatabaseOutlined,
+  UserOutlined,
+  GiftOutlined,
 } from "@ant-design/icons";
-import type { ProviderInfo, ModelInfo } from "../../../../../api/types";
+import type {
+  ProviderInfo,
+  SeriesResponse,
+  ModelInfo,
+  ExtendedModelInfo,
+} from "../../../../../api/types";
+
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "../../../../../contexts/ThemeContext";
@@ -19,6 +41,7 @@ import {
   getLocalizedTestConnectionMessage,
   getTestConnectionFailureDetail,
 } from "./testConnectionMessage";
+import { OpenRouterFilterSection } from "./OpenRouterFilterSection";
 import styles from "../../index.module.less";
 
 function ModelConfigEditor({
@@ -137,11 +160,103 @@ function ModelConfigEditor({
   );
 }
 
+const tagColors = (isDark: boolean) => ({
+  multimodal: {
+    backgroundColor: isDark ? "rgba(24,144,255,0.15)" : "#e6f7ff",
+    color: "#1890ff",
+    borderColor: isDark ? "rgba(24,144,255,0.3)" : "#91d5ff",
+  },
+  vision: {
+    backgroundColor: isDark ? "rgba(19,194,194,0.15)" : "#e6fffb",
+    color: "#13c2c2",
+    borderColor: isDark ? "rgba(19,194,194,0.3)" : "#87e8de",
+  },
+  video: {
+    backgroundColor: isDark ? "rgba(114,46,211,0.15)" : "#f9f0ff",
+    color: "#722ed1",
+    borderColor: isDark ? "rgba(114,46,211,0.3)" : "#d3adf7",
+  },
+  text: {
+    backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "#f5f5f5",
+    color: isDark ? "rgba(255,255,255,0.65)" : "#595959",
+    borderColor: isDark ? "rgba(255,255,255,0.15)" : "#d9d9d9",
+  },
+  notProbed: {
+    backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "#f5f5f5",
+    color: isDark ? "rgba(255,255,255,0.65)" : "#8c8c8c",
+    borderColor: isDark ? "rgba(255,255,255,0.15)" : "#d9d9d9",
+  },
+  builtin: {
+    backgroundColor: isDark ? "rgba(82,196,26,0.15)" : "#f6ffed",
+    color: "#52c41a",
+    borderColor: isDark ? "rgba(82,196,26,0.3)" : "#b7eb8f",
+  },
+  free: {
+    backgroundColor: isDark ? "rgba(82,196,26,0.15)" : "#f6ffed",
+    color: "#52c41a",
+    borderColor: isDark ? "rgba(82,196,26,0.3)" : "#b7eb8f",
+  },
+  userAdded: {
+    backgroundColor: isDark ? "rgba(24,144,255,0.15)" : "#e6f7ff",
+    color: "#1890ff",
+    borderColor: isDark ? "rgba(24,144,255,0.3)" : "#91d5ff",
+  },
+});
+
 interface RemoteModelManageModalProps {
   provider: ProviderInfo;
   open: boolean;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
+}
+
+function CapabilityTags({
+  model,
+  isDark,
+}: {
+  model: ModelInfo;
+  isDark: boolean;
+}) {
+  const { t } = useTranslation();
+  const c = tagColors(isDark);
+  if (model.supports_image && model.supports_video) {
+    return (
+      <Tag style={{ fontSize: 11, marginRight: 4, ...c.multimodal }}>
+        <AppstoreOutlined style={{ fontSize: 10, marginRight: 3 }} />
+        {t("models.tagMultimodal", "多模态")}
+      </Tag>
+    );
+  }
+  if (model.supports_image) {
+    return (
+      <Tag style={{ fontSize: 11, marginRight: 4, ...c.vision }}>
+        <EyeOutlined style={{ fontSize: 10, marginRight: 3 }} />
+        {t("models.tagVision", "视觉")}
+      </Tag>
+    );
+  }
+  if (model.supports_video) {
+    return (
+      <Tag style={{ fontSize: 11, marginRight: 4, ...c.video }}>
+        <VideoCameraOutlined style={{ fontSize: 10, marginRight: 3 }} />
+        {t("models.tagVideo", "视频")}
+      </Tag>
+    );
+  }
+  if (model.supports_multimodal === false) {
+    return (
+      <Tag style={{ fontSize: 11, marginRight: 4, ...c.text }}>
+        <FileTextOutlined style={{ fontSize: 10, marginRight: 3 }} />
+        {t("models.tagText", "文本")}
+      </Tag>
+    );
+  }
+  return (
+    <Tag style={{ fontSize: 11, marginRight: 4, ...c.notProbed }}>
+      <QuestionCircleOutlined style={{ fontSize: 10, marginRight: 3 }} />
+      {t("models.tagNotProbed", "未检测")}
+    </Tag>
+  );
 }
 
 export function RemoteModelManageModal({
@@ -152,18 +267,34 @@ export function RemoteModelManageModal({
 }: RemoteModelManageModalProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
+  const darkBtnStyle = isDark ? { color: "rgba(255,255,255,0.65)" } : undefined;
   const { message } = useAppMessage();
+  const supportsAutoDiscover = provider.support_model_discovery;
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [discovering, setDiscovering] = useState(false);
+  const [discoveringModels, setDiscoveringModels] = useState(false);
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [probingModelId, setProbingModelId] = useState<string | null>(null);
   const [configOpenModelId, setConfigOpenModelId] = useState<string | null>(
     null,
   );
+  const [modelSearchQuery, setModelSearchQuery] = useState("");
   const [form] = Form.useForm();
-  const isLocalProvider = provider.is_local ?? false;
-  const canDiscover = isLocalProvider && provider.support_model_discovery;
+  // OpenRouter filter state
+  const isOpenRouter = provider.id === "openrouter";
+  const [showFilters, setShowFilters] = useState(false);
+  const [availableSeries, setAvailableSeries] = useState<string[]>([]);
+  const [discoveredModels, setDiscoveredModels] = useState<ExtendedModelInfo[]>(
+    [],
+  );
+  const [selectedSeries, setSelectedSeries] = useState<string[]>([]);
+  const [selectedInputModalities, setSelectedInputModalities] = useState<
+    string[]
+  >([]);
+  const [showFreeOnly, setShowFreeOnly] = useState(false);
+  const [loadingFilters, setLoadingFilters] = useState(false);
+
+  const [loadingDiscoveredModels, setLoadingDiscoveredModels] = useState(false);
 
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.
@@ -259,24 +390,24 @@ export function RemoteModelManageModal({
     try {
       const result = await api.probeMultimodal(provider.id, modelId);
       const parts: string[] = [];
-      if (result.supports_image) parts.push(t("models.probeImage", "图片"));
-      if (result.supports_video) parts.push(t("models.probeVideo", "视频"));
+      if (result.supports_image) parts.push(t("models.probeImage"));
+
+      if (result.supports_video) parts.push(t("models.probeVideo"));
+
       if (parts.length > 0) {
         message.success(
           t("models.probeSupported", {
             types: parts.join(", "),
-            defaultValue: `支持: ${parts.join(", ")}`,
           }),
         );
       } else {
-        message.info(t("models.probeNotSupported", "该模型不支持多模态输入"));
+        message.info(t("models.probeNotSupported"));
       }
       await onSaved();
     } catch (error) {
       const errMsg =
-        error instanceof Error
-          ? error.message
-          : t("models.probeFailed", "探测失败");
+        error instanceof Error ? error.message : t("models.probeFailed");
+
       message.error(errMsg);
     } finally {
       setProbingModelId(null);
@@ -312,242 +443,285 @@ export function RemoteModelManageModal({
   const handleClose = () => {
     setAdding(false);
     setConfigOpenModelId(null);
+    setModelSearchQuery("");
     form.resetFields();
     onClose();
   };
 
-  const handleDiscoverModels = async () => {
-    setDiscovering(true);
+  // Load available series for OpenRouter
+  useEffect(() => {
+    if (isOpenRouter) {
+      api
+        .getOpenRouterSeries()
+        .then((res: SeriesResponse) => {
+          const series = res.series || [];
+          setAvailableSeries(series);
+          setSelectedSeries((prev) =>
+            prev.length === 0
+              ? series
+              : prev.filter((item) => series.includes(item)),
+          );
+        })
+        .catch(() => {
+          setAvailableSeries([]);
+          setSelectedSeries([]);
+        });
+    }
+  }, [isOpenRouter]);
+
+  // Fetch models with current filters
+  const handleFetchModels = async () => {
+    if (!isOpenRouter) return;
+
+    setLoadingFilters(true);
     try {
-      const result = await api.discoverModels(provider.id);
+      const filterBody: Record<string, unknown> = {};
+      const hasPartialProviderSelection =
+        selectedSeries.length > 0 &&
+        selectedSeries.length < availableSeries.length;
+      if (hasPartialProviderSelection) {
+        filterBody.providers = selectedSeries;
+      }
+      if (selectedInputModalities.length > 0) {
+        filterBody.input_modalities = selectedInputModalities;
+      }
+      if (showFreeOnly) {
+        filterBody.is_free = true;
+      }
+
+      const result = await api.filterOpenRouterModels(filterBody);
+      if (result.success) {
+        setDiscoveredModels(result.models || []);
+        message.success(
+          t("models.filteredModelsLoaded", { count: result.total_count }),
+        );
+      } else {
+        message.error(t("models.filterFailed"));
+      }
+    } catch {
+      message.error(t("models.filterFailed"));
+    } finally {
+      setLoadingFilters(false);
+    }
+  };
+
+  const handleAddFilteredModel = async (model: ExtendedModelInfo) => {
+    setSaving(true);
+    try {
+      await api.addModel(provider.id, {
+        id: model.id,
+        name: model.name,
+        is_free: model.is_free,
+        supports_multimodal: model.supports_multimodal,
+        supports_image: model.supports_image,
+        supports_video: model.supports_video,
+        probe_source: model.probe_source,
+      });
+      message.success(t("models.modelAdded", { name: model.name }));
+      await onSaved();
+      setDiscoveredModels((prev) => prev.filter((m) => m.id !== model.id));
+    } catch {
+      message.error(t("models.modelAddFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAutoDiscoverModels = async () => {
+    setDiscoveringModels(true);
+    try {
+      const result = await api.discoverModels(provider.id, undefined, true);
+
       if (!result.success) {
-        message.warning(result.message || t("models.discoverModelsFailed"));
+        message.error(result.message || t("models.autoDiscoverModelsFailed"));
         return;
       }
 
+      await onSaved();
+
       if (result.added_count > 0) {
         message.success(
-          t("models.autoDiscoveredAndAdded", {
-            count: result.models.length,
-            added: result.added_count,
+          t("models.autoDiscoverModelsSuccess", {
+            count: result.added_count,
           }),
         );
-        await onSaved();
-      } else if (result.models.length > 0) {
-        message.info(
-          t("models.autoDiscoveredNoNew", { count: result.models.length }),
-        );
-        await onSaved();
-      } else {
-        message.info(result.message || t("models.noModels"));
+        return;
       }
+
+      message.info(
+        result.message ||
+          t("models.autoDiscoverModelsNoNew", {
+            count: result.models.length,
+          }),
+      );
     } catch (error) {
       const errMsg =
         error instanceof Error
           ? error.message
-          : t("models.discoverModelsFailed");
+          : t("models.autoDiscoverModelsFailed");
       message.error(errMsg);
     } finally {
-      setDiscovering(false);
+      setDiscoveringModels(false);
     }
   };
 
   useEffect(() => {
-    // Do not auto-discover models when modal opens, as it may take some time and we don't want to block the UI.
-    // Instead, users can click the "Discover Models" button to trigger discovery when needed.
-  }, [open, canDiscover, provider.id, provider.models.length]);
+    if (!adding) {
+      setDiscoveredModels([]);
+      return;
+    }
+    setLoadingDiscoveredModels(true);
+    api
+      .discoverModels(provider.id, undefined, false)
+      .then((result) => {
+        const sorted = result.models
+          .slice()
+          .sort((a, b) => a.id.localeCompare(b.id));
+        setDiscoveredModels(sorted as unknown as ExtendedModelInfo[]);
+      })
+      .catch(() => setDiscoveredModels([]))
+      .finally(() => setLoadingDiscoveredModels(false));
+  }, [adding, provider.id]);
 
-  const all_models = [
-    ...(provider.models ?? []),
-    ...(provider.extra_models ?? []),
-  ];
+  useEffect(() => {
+    if (!isOpenRouter || !adding) return;
+    setAdding(false);
+    form.resetFields();
+  }, [adding, form, isOpenRouter]);
+
+  const filteredModels = useMemo(() => {
+    const all_models = [
+      ...(provider.models ?? []),
+      ...(provider.extra_models ?? []),
+    ];
+    const q = modelSearchQuery.trim().toLowerCase();
+    if (!q) return all_models;
+    return all_models.filter(
+      (m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q),
+    );
+  }, [provider.models, provider.extra_models, modelSearchQuery]);
+
+  const colors = tagColors(isDark);
 
   return (
     <Modal
       title={t("models.manageModelsTitle", { provider: provider.name })}
       open={open}
       onCancel={handleClose}
-      footer={
-        <div className={styles.modalFooter}>
-          <div className={styles.modalFooterRight}>
-            <Button onClick={handleClose}>{t("models.cancel")}</Button>
-          </div>
-        </div>
-      }
-      width={560}
+      footer={null}
+      width={800}
       destroyOnHidden
     >
+      <Input
+        placeholder={t("models.searchModelPlaceholder", "搜索模型...")}
+        value={modelSearchQuery}
+        onChange={(e) => setModelSearchQuery(e.target.value)}
+        prefix={<SearchOutlined />}
+        allowClear
+      />
+
       {/* Model list */}
       <div className={styles.modelList}>
-        {all_models.length === 0 ? (
+        {filteredModels.length === 0 ? (
           <div className={styles.modelListEmpty}>{t("models.noModels")}</div>
         ) : (
-          all_models.map((m) => {
-            const isDeletable = extraModelIds.has(m.id);
+          filteredModels.map((m) => {
+            const isDeletable = provider.is_custom || extraModelIds.has(m.id);
             const isConfigOpen = configOpenModelId === m.id;
             return (
               <div key={m.id}>
                 <div className={styles.modelListItem}>
                   <div className={styles.modelListItemInfo}>
-                    <span className={styles.modelListItemName}>
-                      {m.name}
-                      {m.supports_image === true && (
-                        <Tag
-                          color="blue"
-                          style={{ fontSize: 11, marginLeft: 6 }}
-                        >
-                          {t("models.tagImage", "图片")}
-                        </Tag>
-                      )}
-                      {m.supports_video === true && (
-                        <Tag
-                          color="purple"
-                          style={{ fontSize: 11, marginLeft: 4 }}
-                        >
-                          {t("models.tagVideo", "视频")}
-                        </Tag>
-                      )}
-                      {m.supports_multimodal === false && (
-                        <Tag style={{ fontSize: 11, marginLeft: 6 }}>
-                          {t("models.tagTextOnly", "纯文本")}
-                        </Tag>
-                      )}
-                      {m.supports_multimodal === null && (
-                        <Tag
-                          color="default"
-                          style={{ fontSize: 11, marginLeft: 6 }}
-                        >
-                          {t("models.tagNotProbed", "未检测")}
-                        </Tag>
-                      )}
-                    </span>
+                    <span className={styles.modelListItemName}>{m.name}</span>
                     <span className={styles.modelListItemId}>{m.id}</span>
                   </div>
                   <div className={styles.modelListItemActions}>
-                    {isDeletable ? (
-                      <>
-                        <Tag
-                          color="blue"
-                          style={{ fontSize: 11, marginRight: 4 }}
-                        >
-                          {t("models.userAdded")}
-                        </Tag>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<EyeOutlined />}
-                          onClick={() => handleProbeMultimodal(m.id)}
-                          loading={probingModelId === m.id}
-                          style={{
-                            marginRight: 4,
-                            color: isDark
-                              ? "rgba(255,255,255,0.65)"
-                              : undefined,
-                          }}
-                        >
-                          {t("models.probeMultimodal", "测试多模态")}
-                        </Button>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<ApiOutlined />}
-                          onClick={() => handleTestModel(m.id)}
-                          loading={testingModelId === m.id}
-                          style={{
-                            marginRight: 4,
-                            color: isDark
-                              ? "rgba(255,255,255,0.65)"
-                              : undefined,
-                          }}
-                        >
-                          {t("models.testConnection")}
-                        </Button>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={
-                            isConfigOpen ? (
-                              <DownOutlined />
-                            ) : (
-                              <SettingOutlined />
-                            )
-                          }
-                          onClick={() =>
-                            setConfigOpenModelId(isConfigOpen ? null : m.id)
-                          }
-                          style={{
-                            marginRight: 4,
-                            color: isDark
-                              ? "rgba(255,255,255,0.65)"
-                              : undefined,
-                          }}
+                    <CapabilityTags model={m} isDark={isDark} />
+                    {m.is_free && (
+                      <Tag
+                        style={{
+                          fontSize: 11,
+                          marginRight: 4,
+                          ...colors.free,
+                        }}
+                      >
+                        <GiftOutlined
+                          style={{ fontSize: 10, marginRight: 3 }}
                         />
-                        <Button
-                          type="text"
-                          size="small"
-                          danger
-                          icon={<DeleteOutlined />}
-                          onClick={() => handleRemoveModel(m.id, m.name)}
+                        {t("models.free")}
+                      </Tag>
+                    )}
+                    <Tag
+                      style={{
+                        fontSize: 11,
+                        marginRight: 4,
+                        ...(isDeletable ? colors.userAdded : colors.builtin),
+                      }}
+                    >
+                      {isDeletable ? (
+                        <UserOutlined
+                          style={{ fontSize: 10, marginRight: 3 }}
                         />
-                      </>
-                    ) : (
-                      <>
-                        <Tag
-                          color="green"
-                          style={{ fontSize: 11, marginRight: 4 }}
-                        >
-                          {t("models.builtin")}
-                        </Tag>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<EyeOutlined />}
-                          onClick={() => handleProbeMultimodal(m.id)}
-                          loading={probingModelId === m.id}
-                          style={{
-                            marginRight: 4,
-                            color: isDark
-                              ? "rgba(255,255,255,0.65)"
-                              : undefined,
-                          }}
-                        >
-                          {t("models.probeMultimodal", "测试多模态")}
-                        </Button>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<ApiOutlined />}
-                          onClick={() => handleTestModel(m.id)}
-                          loading={testingModelId === m.id}
-                          style={{
-                            marginRight: 4,
-                            color: isDark
-                              ? "rgba(255,255,255,0.65)"
-                              : undefined,
-                          }}
-                        >
-                          {t("models.testConnection")}
-                        </Button>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={
-                            isConfigOpen ? (
-                              <DownOutlined />
-                            ) : (
-                              <SettingOutlined />
-                            )
-                          }
-                          onClick={() =>
-                            setConfigOpenModelId(isConfigOpen ? null : m.id)
-                          }
-                          style={{
-                            color: isDark
-                              ? "rgba(255,255,255,0.65)"
-                              : undefined,
-                          }}
+                      ) : (
+                        <DatabaseOutlined
+                          style={{ fontSize: 10, marginRight: 3 }}
                         />
-                      </>
+                      )}
+                      {t(isDeletable ? "models.userAdded" : "models.builtin")}
+                    </Tag>
+                    <span
+                      style={{
+                        display: "inline-block",
+                        width: 1,
+                        height: 16,
+                        background: isDark
+                          ? "rgba(255,255,255,0.15)"
+                          : "#e5e7eb",
+                        margin: "0 8px",
+                        flexShrink: 0,
+                      }}
+                    />
+                    <Tooltip title={t("models.probeMultimodal", "测试多模态")}>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<ExperimentOutlined />}
+                        onClick={() => handleProbeMultimodal(m.id)}
+                        loading={probingModelId === m.id}
+                        style={darkBtnStyle}
+                      />
+                    </Tooltip>
+                    <Tooltip title={t("models.testConnection")}>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<ApiOutlined />}
+                        onClick={() => handleTestModel(m.id)}
+                        loading={testingModelId === m.id}
+                        style={darkBtnStyle}
+                      />
+                    </Tooltip>
+                    <Tooltip title={t("models.modelConfigLabel", "模型配置")}>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={
+                          isConfigOpen ? <DownOutlined /> : <SettingOutlined />
+                        }
+                        onClick={() =>
+                          setConfigOpenModelId(isConfigOpen ? null : m.id)
+                        }
+                        style={darkBtnStyle}
+                      />
+                    </Tooltip>
+                    {isDeletable && (
+                      <Button
+                        type="text"
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={() => handleRemoveModel(m.id, m.name)}
+                      />
                     )}
                   </div>
                 </div>
@@ -575,69 +749,113 @@ export function RemoteModelManageModal({
         )}
       </div>
 
-      {/* Add model section */}
-      {adding ? (
-        <div className={styles.modelAddForm}>
-          <Form form={form} layout="vertical" style={{ marginBottom: 0 }}>
-            <Form.Item
-              name="id"
-              label={t("models.modelIdLabel")}
-              rules={[{ required: true, message: t("models.modelIdLabel") }]}
-              style={{ marginBottom: 12 }}
-            >
-              <Input placeholder={t("models.modelIdPlaceholder")} />
-            </Form.Item>
-            <Form.Item
-              name="name"
-              label={t("models.modelNameLabel")}
-              style={{ marginBottom: 12 }}
-            >
-              <Input placeholder={t("models.modelNamePlaceholder")} />
-            </Form.Item>
-            <div
-              style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}
-            >
-              <Button
-                size="small"
-                onClick={() => {
-                  setAdding(false);
-                  form.resetFields();
-                }}
-              >
-                {t("models.cancel")}
-              </Button>
-              <Button
-                type="primary"
-                size="small"
-                loading={saving}
-                onClick={handleAddModel}
-              >
-                {t("models.addModel")}
-              </Button>
-            </div>
-          </Form>
-        </div>
-      ) : (
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <Button
-            icon={<SyncOutlined />}
-            onClick={handleDiscoverModels}
-            loading={discovering}
-            disabled={!canDiscover}
-            style={{ flex: 1 }}
-          >
-            {t("models.discoverModels")}
-          </Button>
-          <Button
-            type="dashed"
-            icon={<PlusOutlined />}
-            onClick={() => setAdding(true)}
-            style={{ flex: 1 }}
-          >
-            {t("models.addModel")}
-          </Button>
-        </div>
+      {isOpenRouter && (
+        <OpenRouterFilterSection
+          showFilters={showFilters}
+          availableSeries={availableSeries}
+          selectedSeries={selectedSeries}
+          selectedInputModalities={selectedInputModalities}
+          showFreeOnly={showFreeOnly}
+          loadingFilters={loadingFilters}
+          discoveredModels={discoveredModels}
+          saving={saving}
+          isDark={isDark}
+          freeTagStyle={colors.free}
+          onToggleFilters={() => setShowFilters(!showFilters)}
+          onSelectedSeriesChange={setSelectedSeries}
+          onSelectedInputModalitiesChange={setSelectedInputModalities}
+          onShowFreeOnlyChange={setShowFreeOnly}
+          onFetchModels={handleFetchModels}
+          onAddModel={handleAddFilteredModel}
+        />
       )}
+
+      {/* Add model section */}
+      {!isOpenRouter &&
+        (adding ? (
+          <div className={styles.modelAddForm}>
+            <Form form={form} layout="vertical" style={{ marginBottom: 0 }}>
+              <Form.Item
+                name="id"
+                label={t("models.modelIdLabel")}
+                rules={[{ required: true, message: t("models.modelIdLabel") }]}
+                style={{ marginBottom: 12 }}
+              >
+                <AutoComplete
+                  placeholder={t("models.modelIdPlaceholder")}
+                  options={discoveredModels.map((model) => ({
+                    value: model.id,
+                    label: model.id,
+                  }))}
+                  filterOption={(
+                    inputValue: string,
+                    option?: { value?: string },
+                  ) =>
+                    option?.value
+                      ?.toLowerCase()
+                      .includes(inputValue.toLowerCase()) ?? false
+                  }
+                  notFoundContent={
+                    loadingDiscoveredModels
+                      ? t("common.loading")
+                      : t("models.modelDiscoveryUnavailableHint")
+                  }
+                >
+                  <Input />
+                </AutoComplete>
+              </Form.Item>
+              <Form.Item
+                name="name"
+                label={t("models.modelNameLabel")}
+                style={{ marginBottom: 12 }}
+              >
+                <Input placeholder={t("models.modelNamePlaceholder")} />
+              </Form.Item>
+              <div
+                style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}
+              >
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setAdding(false);
+                    form.resetFields();
+                  }}
+                >
+                  {t("models.cancel")}
+                </Button>
+                <Button
+                  type="primary"
+                  size="small"
+                  loading={saving}
+                  onClick={handleAddModel}
+                >
+                  {t("models.addModel")}
+                </Button>
+              </div>
+            </Form>
+          </div>
+        ) : (
+          <div className={styles.modalActionRow}>
+            {supportsAutoDiscover && (
+              <Button
+                icon={<SearchOutlined />}
+                loading={discoveringModels}
+                onClick={handleAutoDiscoverModels}
+                style={{ flex: 1 }}
+              >
+                {t("models.autoDiscoverModels")}
+              </Button>
+            )}
+            <Button
+              type="dashed"
+              icon={<PlusOutlined />}
+              onClick={() => setAdding(true)}
+              style={{ flex: 1 }}
+            >
+              {t("models.addModel")}
+            </Button>
+          </div>
+        ))}
     </Modal>
   );
 }
